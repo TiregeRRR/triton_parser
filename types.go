@@ -1,0 +1,21 @@
+package tritonparser
+
+const (
+	BOOL = "BOOL"
+
+	UINT8  = "UINT8"
+	UINT16 = "UINT16"
+	UINT32 = "UINT32"
+	UINT64 = "UINT64"
+
+	INT8  = "INT8"
+	INT16 = "INT16"
+	INT32 = "INT32"
+	INT64 = "INT64"
+
+	FLOAT16 = "FP16"
+	FLOAT32 = "FP32"
+	FLOAT64 = "FP64"
+
+	STRING = "BYTES"
+)
