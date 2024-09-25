@@ -63,18 +63,62 @@ func parse(fieldMap map[string]reflect.Value, output TritonModelInferResponseOut
 	var err error
 	shape := output.GetShape()
 
-	if shape[0] > 1 {
-		return errors.New("shape > 1 is not yet supported")
-	}
-
 	if len(shape) > 2 {
 		return errors.New("len(shape) > 2 is not yet supported")
 	}
 
-	if len(shape) > 1 {
-		err = parseToArray(fieldMap, output, rawBytes)
-	} else {
+	switch {
+	case len(shape) == 1:
 		err = parseToValue(fieldMap, output, rawBytes)
+	case shape[0] == 1 && len(shape) == 2:
+		err = parseToArray(fieldMap, output, rawBytes)
+	case shape[0] > 1 && len(shape) == 2:
+		err = parseToMultidimenshionalArray(fieldMap, output, rawBytes)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// currently cannot store function without instantiation
+//
+//nolint:dupl // different functions for arrays and value.
+func parseToMultidimenshionalArray(
+	fieldMap map[string]reflect.Value,
+	output TritonModelInferResponseOutputs,
+	rawBytes []byte,
+) error {
+	var err error
+	switch output.GetDatatype() {
+	case BOOL:
+		err = unmarshalMultidimenshionalArray[bool](fieldMap, output, rawBytes)
+	case UINT8:
+		err = unmarshalMultidimenshionalArray[uint8](fieldMap, output, rawBytes)
+	case UINT16:
+		err = unmarshalMultidimenshionalArray[uint16](fieldMap, output, rawBytes)
+	case UINT32:
+		err = unmarshalMultidimenshionalArray[uint32](fieldMap, output, rawBytes)
+	case INT8:
+		err = unmarshalMultidimenshionalArray[int8](fieldMap, output, rawBytes)
+	case INT16:
+		err = unmarshalMultidimenshionalArray[int16](fieldMap, output, rawBytes)
+	case INT32:
+		err = unmarshalMultidimenshionalArray[int32](fieldMap, output, rawBytes)
+	case INT64:
+		err = unmarshalMultidimenshionalArray[int64](fieldMap, output, rawBytes)
+	case FLOAT16:
+		err = fmt.Errorf("%s not yet supported", FLOAT16)
+	case FLOAT32:
+		err = unmarshalMultidimenshionalArray[float32](fieldMap, output, rawBytes)
+	case FLOAT64:
+		err = unmarshalMultidimenshionalArray[float64](fieldMap, output, rawBytes)
+	case STRING:
+		err = unmarshalMultidimenshionalStringArray(fieldMap, output, rawBytes)
+	default:
+		return fmt.Errorf("unkwnow type: %s", output.GetDatatype())
 	}
 
 	if err != nil {
@@ -118,7 +162,7 @@ func parseToArray(
 	case FLOAT64:
 		err = unmarshalArray[float64](fieldMap, output, rawBytes)
 	case STRING:
-		err = fmt.Errorf("%s not yet supported", STRING)
+		err = unmarshalStringArray(fieldMap, output, rawBytes)
 	default:
 		return fmt.Errorf("unkwnow type: %s", output.GetDatatype())
 	}
@@ -163,13 +207,42 @@ func parseToValue(
 	case FLOAT64:
 		err = unmarshalValue[float64](fieldMap, output, rawBytes)
 	case STRING:
-		err = fmt.Errorf("%s not yet supported", STRING)
+		err = unmarshalStringValue(fieldMap, output, rawBytes)
 	default:
 		return fmt.Errorf("unkwnow type: %s", output.GetDatatype())
 	}
 
 	if err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func unmarshalStringValue(
+	fieldMap map[string]reflect.Value,
+	resp TritonModelInferResponseOutputs,
+	rawBytes []byte,
+) error {
+	var strLen uint32
+
+	buf := bytes.NewBuffer(rawBytes)
+	if err := binary.Read(buf, binary.LittleEndian, &strLen); err != nil {
+		return fmt.Errorf("binary read failed: %w", err)
+	}
+
+	var val string
+
+	if fieldMap[resp.GetName()].Type() != reflect.TypeOf(val) {
+		return fmt.Errorf("types doesn't match exp: %T got: %s", val, fieldMap[resp.GetName()].Type().String())
+	}
+
+	if err := binary.Read(buf, binary.LittleEndian, &val); err != nil {
+		return fmt.Errorf("binary read failed: %w", err)
+	}
+
+	if v, ok := fieldMap[resp.GetName()]; ok {
+		v.Set(reflect.ValueOf(val))
 	}
 
 	return nil
@@ -197,18 +270,91 @@ func unmarshalValue[T any](
 	return nil
 }
 
+func unmarshalMultidimenshionalArray[T any](
+	fieldMap map[string]reflect.Value,
+	resp TritonModelInferResponseOutputs,
+	rawBytes []byte,
+) error {
+	numOfArrays := resp.GetShape()[0]
+	arrLen := resp.GetShape()[1]
+	arr := make([][]T, 0, numOfArrays)
+	if fieldMap[resp.GetName()].Type() != reflect.TypeOf(arr) {
+		return fmt.Errorf("types doesn't match exp: %T got: %s", arr, fieldMap[resp.GetName()].Type().String())
+	}
+
+	buf := bytes.NewReader(rawBytes)
+	for i := 0; i < int(numOfArrays); i++ {
+		for j := 0; j < int(arrLen); j++ {
+			err := binary.Read(buf, binary.LittleEndian, &arr[i][j])
+			if err != nil {
+				return fmt.Errorf("binary read failed: %w", err)
+			}
+		}
+	}
+
+	if v, ok := fieldMap[resp.GetName()]; ok {
+		v.Set(reflect.ValueOf(arr))
+	}
+
+	return nil
+}
+
+func unmarshalMultidimenshionalStringArray(
+	fieldMap map[string]reflect.Value,
+	resp TritonModelInferResponseOutputs,
+	rawBytes []byte,
+) error {
+	numOfArrays := resp.GetShape()[0]
+	arrLen := resp.GetShape()[1]
+	arr := make([][]string, numOfArrays)
+	if fieldMap[resp.GetName()].Type() != reflect.TypeOf(arr) {
+		return fmt.Errorf("types doesn't match exp: %T got: %s", arr, fieldMap[resp.GetName()].Type().String())
+	}
+
+	for i := range arr {
+		arr[i] = make([]string, arrLen)
+	}
+
+	prev := 0
+	for i := 0; i < int(numOfArrays); i++ {
+		for j := 0; j < int(arrLen); j++ {
+			buf := bytes.NewReader(rawBytes[prev : prev+4])
+			var strLen uint32
+			if err := binary.Read(buf, binary.LittleEndian, &strLen); err != nil {
+				return fmt.Errorf("binary read failed: %w", err)
+			}
+
+			buf = bytes.NewReader(rawBytes[prev+4 : prev+4+int(strLen)])
+			tmp := make([]byte, strLen)
+			err := binary.Read(buf, binary.LittleEndian, &tmp)
+			if err != nil {
+				return fmt.Errorf("binary read failed: %w", err)
+			}
+
+			arr[i][j] = string(tmp)
+			prev += 4 + int(strLen)
+		}
+	}
+
+	if v, ok := fieldMap[resp.GetName()]; ok {
+		v.Set(reflect.ValueOf(arr))
+	}
+
+	return nil
+}
+
 func unmarshalArray[T any](
 	fieldMap map[string]reflect.Value,
 	resp TritonModelInferResponseOutputs,
 	rawBytes []byte,
 ) error {
-	arrLen := len(resp.GetShape())
+	arrLen := resp.GetShape()[1]
 	arr := make([]T, 0, arrLen)
 	if fieldMap[resp.GetName()].Type() != reflect.TypeOf(arr) {
 		return fmt.Errorf("types doesn't match exp: %T got: %s", arr, fieldMap[resp.GetName()].Type().String())
 	}
 
-	arr, err := bytesToArray[T](rawBytes, arr)
+	arr, err := bytesToArray(rawBytes, arr)
 	if err != nil {
 		return err
 	}
@@ -218,6 +364,52 @@ func unmarshalArray[T any](
 	}
 
 	return nil
+}
+
+func unmarshalStringArray(
+	fieldMap map[string]reflect.Value,
+	resp TritonModelInferResponseOutputs,
+	rawBytes []byte,
+) error {
+	arrLen := len(resp.GetShape())
+	arr := make([]string, 0, arrLen)
+	if fieldMap[resp.GetName()].Type() != reflect.TypeOf(arr) {
+		return fmt.Errorf("types doesn't match exp: %T got: %s", arr, fieldMap[resp.GetName()].Type().String())
+	}
+
+	arr, err := stringBytesToArray(rawBytes, arr, arrLen)
+	if err != nil {
+		return err
+	}
+
+	if v, ok := fieldMap[resp.GetName()]; ok {
+		v.Set(reflect.ValueOf(arr))
+	}
+
+	return nil
+}
+
+func stringBytesToArray(b []byte, arr []string, size int) ([]string, error) {
+	prev := 0
+	for i := 0; i < size; i++ {
+		buf := bytes.NewReader(b[prev : prev+4])
+		var strLen uint32
+		if err := binary.Read(buf, binary.LittleEndian, &strLen); err != nil {
+			return nil, fmt.Errorf("binary read failed: %w", err)
+		}
+
+		buf = bytes.NewReader(b[prev+4 : prev+4+int(strLen)])
+		t := make([]byte, strLen)
+		if err := binary.Read(buf, binary.LittleEndian, &t); err != nil {
+			return nil, fmt.Errorf("binary read failed: %w", err)
+		}
+
+		prev += 4 + int(strLen)
+
+		arr = append(arr, string(t))
+	}
+
+	return arr, nil
 }
 
 func bytesToArray[T any](b []byte, arr []T) ([]T, error) {
