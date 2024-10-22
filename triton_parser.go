@@ -237,6 +237,10 @@ func unmarshalStringValue(
 		return fmt.Errorf("types doesn't match exp: %T got: %s", val, fieldMap[resp.GetName()].Type().String())
 	}
 
+	if len(rawBytes) == 0 {
+		return nil
+	}
+
 	if err := binary.Read(buf, binary.LittleEndian, &val); err != nil {
 		return fmt.Errorf("binary read failed: %w", err)
 	}
@@ -372,25 +376,26 @@ func unmarshalStringArray(
 	rawBytes []byte,
 ) error {
 	arrLen := len(resp.GetShape())
-	arr := make([]string, 0, arrLen)
+	var arr []string
 	if fieldMap[resp.GetName()].Type() != reflect.TypeOf(arr) {
 		return fmt.Errorf("types doesn't match exp: %T got: %s", arr, fieldMap[resp.GetName()].Type().String())
 	}
 
-	arr, err := stringBytesToArray(rawBytes, arr, arrLen)
-	if err != nil {
-		return err
+	if len(rawBytes) == 0 {
+		return nil
 	}
 
-	if v, ok := fieldMap[resp.GetName()]; ok {
-		v.Set(reflect.ValueOf(arr))
+	arr, err := stringBytesToArray(rawBytes, arrLen)
+	if err != nil {
+		return err
 	}
 
 	return nil
 }
 
-func stringBytesToArray(b []byte, arr []string, size int) ([]string, error) {
+func stringBytesToArray(b []byte, size int) ([]string, error) {
 	prev := 0
+	arr := make([]string, size)
 	for i := 0; i < size; i++ {
 		buf := bytes.NewReader(b[prev : prev+4])
 		var strLen uint32
