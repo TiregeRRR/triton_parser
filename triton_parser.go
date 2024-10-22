@@ -226,6 +226,10 @@ func unmarshalStringValue(
 ) error {
 	var strLen uint32
 
+	if len(rawBytes) == 0 {
+		return nil
+	}
+
 	buf := bytes.NewBuffer(rawBytes)
 	if err := binary.Read(buf, binary.LittleEndian, &strLen); err != nil {
 		return fmt.Errorf("binary read failed: %w", err)
@@ -235,10 +239,6 @@ func unmarshalStringValue(
 
 	if fieldMap[resp.GetName()].Type() != reflect.TypeOf(val) {
 		return fmt.Errorf("types doesn't match exp: %T got: %s", val, fieldMap[resp.GetName()].Type().String())
-	}
-
-	if len(rawBytes) == 0 {
-		return nil
 	}
 
 	if err := binary.Read(buf, binary.LittleEndian, &val); err != nil {
@@ -319,6 +319,10 @@ func unmarshalMultidimenshionalStringArray(
 		arr[i] = make([]string, arrLen)
 	}
 
+	if len(rawBytes) == 0 {
+		return nil
+	}
+
 	prev := 0
 	for i := 0; i < int(numOfArrays); i++ {
 		for j := 0; j < int(arrLen); j++ {
@@ -390,6 +394,10 @@ func unmarshalStringArray(
 		return err
 	}
 
+	if v, ok := fieldMap[resp.GetName()]; ok {
+		v.Set(reflect.ValueOf(arr))
+	}
+
 	return nil
 }
 
@@ -411,7 +419,7 @@ func stringBytesToArray(b []byte, size int) ([]string, error) {
 
 		prev += 4 + int(strLen)
 
-		arr = append(arr, string(t))
+		arr[i] = string(t)
 	}
 
 	return arr, nil
