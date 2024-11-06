@@ -384,7 +384,10 @@ func unmarshalStringArray(
 	arrLen := len(resp.GetShape())
 	var arr []string
 	if fieldMap[resp.GetName()].Type() != reflect.TypeOf(arr) {
-		return fmt.Errorf("types doesn't match exp: %T got: %s. Shape: %v", arr, fieldMap[resp.GetName()].Type().String(), resp.GetShape())
+		return fmt.Errorf("types doesn't match exp: %T got: %s. Shape: %v",
+			arr,
+			fieldMap[resp.GetName()].Type().String(), resp.GetShape(),
+		)
 	}
 
 	if len(rawBytes) == 0 {
