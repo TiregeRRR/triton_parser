@@ -72,8 +72,10 @@ func parse(fieldMap map[string]reflect.Value, output TritonModelInferResponseOut
 		err = parseToValue(fieldMap, output, rawBytes)
 	case shape[0] == 1 && len(shape) == 2:
 		err = parseToArray(fieldMap, output, rawBytes)
-	case shape[0] > 1 && len(shape) == 2:
+	case len(shape) == 2 && shape[0] > 1:
 		err = parseToMultidimenshionalArray(fieldMap, output, rawBytes)
+	default:
+		err = fmt.Errorf("unknown shape: %v", shape)
 	}
 
 	if err != nil {
@@ -382,7 +384,7 @@ func unmarshalStringArray(
 	arrLen := len(resp.GetShape())
 	var arr []string
 	if fieldMap[resp.GetName()].Type() != reflect.TypeOf(arr) {
-		return fmt.Errorf("types doesn't match exp: %T got: %s", arr, fieldMap[resp.GetName()].Type().String())
+		return fmt.Errorf("types doesn't match exp: %T got: %s. Shape: %v", arr, fieldMap[resp.GetName()].Type().String(), resp.GetShape())
 	}
 
 	if len(rawBytes) == 0 {
